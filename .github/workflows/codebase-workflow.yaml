@@ -1,12 +1,12 @@
-name: Call Codebase Workflow
-on:
-  push: 
-    branches:
-      - main
+# name: Call Codebase Workflow
+# on:
+#   push: 
+#     branches:
+#       - main
 
-jobs:
-  call-software-dependency-workflow:
-    uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/codebase-workflow.yaml@main
-    permissions: # Required if the admin repo is private
-      id-token: write
-      contents: read
+# jobs:
+#   call-software-dependency-workflow:
+#     uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/codebase-workflow.yaml@main
+#     permissions: # Required if the admin repo is private
+#       id-token: write
+#       contents: read
