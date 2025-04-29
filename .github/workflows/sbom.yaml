@@ -1,0 +1,228 @@
+name: Generate CycloneDX SBOM for Multiple Formats
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  generate-sbom:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Node.js (npm)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+
+      - name: Install npm dependencies
+        if: hashFiles('package.json')
+        run: npm install --legacy-peer-deps
+
+      - name: Install missing dependencies
+        if: hashFiles('package.json')
+        run: npm install eslint-plugin-n@15 --save-dev
+
+      - name: Force install TypeScript version
+        if: hashFiles('package.json')
+        run: npm install typescript@4.6.4 --save-dev --force
+
+      - name: Generate CycloneDX SBOM for npm
+        if: hashFiles('package.json')
+        run: npx @cyclonedx/cyclonedx-npm --output-file sbom-npm.json
+
+      # Python (pip)
+      - name: Set up Python
+        if: hashFiles('requirements.txt') || hashFiles('setup.py')
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install pip dependencies
+        if: hashFiles('requirements.txt') || hashFiles('setup.py')
+        run: pip install -r requirements.txt
+
+      - name: Generate CycloneDX SBOM for pip
+        if: hashFiles('requirements.txt') || hashFiles('setup.py')
+        run: cyclonedx-py --output sbom-pip.json
+
+      # Java (Maven)
+      - name: Set up Java
+        if: hashFiles('pom.xml')
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'adopt'
+
+      - name: Install Maven dependencies
+        if: hashFiles('pom.xml')
+        run: mvn install
+
+      - name: Generate CycloneDX SBOM for Maven
+        if: hashFiles('pom.xml')
+        run: mvn cyclonedx:makeAggregateBom
+
+      # Ruby (Bundler)
+      - name: Set up Ruby
+        if: hashFiles('Gemfile')
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '2.7'
+
+      - name: Install Bundler dependencies
+        if: hashFiles('Gemfile')
+        run: bundle install
+
+      - name: Generate CycloneDX SBOM for Bundler
+        if: hashFiles('Gemfile')
+        run: cyclonedx-bundler --output sbom-bundler.json
+
+      # Debugging: List generated SBOM files
+      - name: List Generated SBOM Files
+        run: ls -lh sbom-*.json target || echo "No SBOM files found"
+
+      # Merge SBOMs into one unified SBOM
+      - name: Merge SBOMs
+        run: |
+          # Initialize an array to hold existing SBOM files
+          sbom_files=()
+
+          # Check for the existence of each SBOM file and add to the array if it exists
+          if [ -f sbom-npm.json ]; then
+            sbom_files+=("sbom-npm.json")
+          fi
+
+          if [ -f sbom-pip.json ]; then
+            sbom_files+=("sbom-pip.json")
+          fi
+
+          if [ -f target/cyclonedx-bom.xml ]; then
+            sbom_files+=("target/cyclonedx-bom.xml")
+          fi
+
+          if [ -f sbom-bundler.json ]; then
+            sbom_files+=("sbom-bundler.json")
+          fi
+
+          # Check if any SBOM files were found
+          if [ ${#sbom_files[@]} -eq 0 ]; then
+            echo "No SBOM files found to merge."
+            exit 1
+          fi
+
+          # Use jq to merge the existing SBOMs into one unified SBOM
+          jq -s 'reduce .[] as $item ({}; . * $item)' "${sbom_files[@]}" > sbom.json
+
+      # Upload the Unified SBOM
+      - name: Upload Unified SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+  push-sbom:
+    runs-on: self-hosted
+    needs: generate-sbom # Ensures this job runs only after generate-sbom is complete
+
+    steps:
+      # Download SBOMs from the previous job
+      - name: Download SBOMs
+        uses: actions/download-artifact@v4
+        with:
+          name: sboms
+
+      - name: Wrap SBOM in required JSON structure
+        run: |
+          SBOM_CONTENT=$(base64 -w 0 sbom-npm.json || echo "")
+          if [ -z "$SBOM_CONTENT" ]; then
+            echo "SBOM file is empty or missing."
+            exit 1
+          fi
+          echo "{\"project\": \"44a6cbda-f849-4e1b-9943-52be44169eb1\", \"bom\": \"$SBOM_CONTENT\"}" > payload.json
+
+      # Submit the SBOM to the API
+      - name: Submit SBOM to API
+        run: |
+          RESPONSE=$(curl -s -X "PUT" "http://localhost:8081/api/v1/bom" \
+          -d @payload.json \
+          -H "X-Api-Key: ${{ secrets.DEPENDENCY_TRACK_API_KEY }}" \
+          -H "Content-Type: application/json")
+          
+          echo "API Response: $RESPONSE"
+          if [[ "$RESPONSE" == *"error"* ]]; then
+            echo "Failed to upload SBOM."
+            exit 1
+          fi
+
+  fetch-scan-from-dependency-track:
+    runs-on: self-hosted
+    needs: push-sbom # Ensures this job runs only after push-sbom is complete
+
+    steps:
+      - name: Check Scan Status
+        id: check-status
+        run: |
+          PROJECT_UUID="44a6cbda-f849-4e1b-9943-52be44169eb1"
+          SCAN_COMPLETE=false
+
+          while [ "$SCAN_COMPLETE" = false ]; do
+            RESPONSE=$(curl -s -X GET "http://localhost:8081/api/v1/project/${PROJECT_UUID}" \
+            -H "X-Api-Key: ${{ secrets.DEPENDENCY_TRACK_API_KEY }}" \
+            -H "Content-Type: application/json")
+
+            echo "API Response: $RESPONSE" # Debugging line
+
+            SCAN_STATUS=$(echo "$RESPONSE" | jq -r '.lastAnalysisStatus')
+            if [ "$SCAN_STATUS" = "ANALYZED" ]; then
+              SCAN_COMPLETE=true
+              echo "Scan completed successfully."
+            elif [ "$SCAN_STATUS" = "IN_PROGRESS" ]; then
+              echo "Scan still in progress. Waiting..."
+              sleep 30
+            else
+              echo "Scan completed with status: $SCAN_STATUS"
+              SCAN_COMPLETE=true
+            fi
+          done
+
+      - name: Fetch Scan Results
+        id: fetch-results
+        run: |
+          RESPONSE=$(curl -X GET "http://localhost:8081/api/v1/finding/project/44a6cbda-f849-4e1b-9943-52be44169eb1" \
+          -H "X-Api-Key: odt_mFDG4LXN_xEvL6DqsDJaukONSIVaccgUE9ioBXQkf")
+
+          echo "BOM Fetch Response: $RESPONSE" # Debugging line
+
+          # Check if the response is empty or not
+          if [ -z "$RESPONSE" ]; then
+            echo "No BOM data returned."
+            exit 1
+          fi
+
+          echo "$RESPONSE" > scan-results.json
+
+      - name: Create GitHub Issues
+        run: |
+          ISSUES=$(jq -c '.components[] | select(.issues != null) | {title: .name, body: .issues[] | {description: .description, severity: .severity}}' scan-results.json)
+          
+          for ISSUE in $ISSUES; do
+            TITLE=$(echo "$ISSUE" | jq -r '.title')
+            BODY=$(echo "$ISSUE" | jq -r '.body.description')
+            SEVERITY=$(echo "$ISSUE" | jq -r '.body.severity')
+
+            RESPONSE=$(curl -X POST "https://api.github.com/repos/${{ github.repository }}/issues" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d "{\"title\": \"$TITLE\", \"body\": \"Severity: $SEVERITY\n\n$BODY\"}" \
+            -s -w "%{http_code}" -o response.json)
+
+            if [ "$RESPONSE" -ne 201 ]; then
+              echo "Failed to create issue: $(cat response.json)"
+            fi
+          done

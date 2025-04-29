@@ -1,0 +1,45 @@
+name: New Threat workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      cveNumber:
+        description: 'CVE to test for'
+        required: false
+        default: 'null'
+      vulnerablePackage:
+        description: 'Packages affected by CVE'
+        required: true
+        default: 'null'
+      packageVersions:
+        description: 'Versions affected by CVE'
+        required: true
+        default: 'null'
+
+jobs:
+  download-sbom:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download SBOM Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom  # This matches the name used during upload
+
+      - name: Install jq
+        run: sudo apt-get install jq
+
+      - name: Check for Specific Package Version
+        run: |
+          PACKAGE_NAME=${{ github.event.inputs.vulnerablePackage }} 
+          PACKAGE_VERSION=${{ github.event.inputs.packageVersions }} 
+
+          if jq -e ".components[] | select(.name == \"$PACKAGE_NAME\" and .version == \"$PACKAGE_VERSION\")" sbom.json > /dev/null; then
+            echo "Package $PACKAGE_NAME version $PACKAGE_VERSION is present in the SBOM."
+          else
+            echo "Package $PACKAGE_NAME version $PACKAGE_VERSION is NOT present in the SBOM."
+            exit 1
+          fi

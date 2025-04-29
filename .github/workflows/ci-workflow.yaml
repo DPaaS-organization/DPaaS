@@ -1,0 +1,124 @@
+name: ci-workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sonar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_VERSION: '1.0'
+
+      - name: Get SonarQube Issues
+        id: get_issues
+        run: |
+          curl -s -u ${{ secrets.SONAR_TOKEN }} \
+            "https://sonarcloud.io/api/issues/search?projectKeys=${{ secrets.SONAR_PROJECT_KEY }}" \
+            | jq -c '[.issues[]]' > issues.json
+          echo "::set-output name=issues::$(cat issues.json)"
+
+      - name: Create GitHub Issues
+        if: steps.get_issues.outputs.issues != ''
+        run: |
+          jq -c '.[]' issues.json | while read -r issue; do
+              TITLE=$(echo "$issue" | jq -r '.message')
+              UNIQUE_KEY=$(echo "$issue" | jq -r '.key') # Use the unique key from SonarQube
+              BODY="Severity: $(echo "$issue" | jq -r '.severity')\nFile: $(echo "$issue" | jq -r '.component')\nDescription: $(echo "$issue" | jq -r '.description')\n\nUnique Key: $UNIQUE_KEY"
+
+              echo "Checking if issue already exists with title: $TITLE and key: $UNIQUE_KEY"
+
+              # Check if the issue already exists
+              existing_issue=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/lucvdacker/DPaaS/issues?state=open&filter=all&per_page=100" \
+                | jq -r --arg TITLE "$TITLE" --arg UNIQUE_KEY "$UNIQUE_KEY" '.[] | select(.title == $TITLE and (.body | contains($UNIQUE_KEY))) | .number')
+
+              if [ -n "$existing_issue" ]; then
+                  echo "Issue already exists: #$existing_issue. Skipping creation."
+              else
+                  echo "Creating new issue with title: $TITLE"
+                  response=$(curl -X POST \
+                    -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/repos/lucvdacker/DPaaS/issues \
+                    -d "{\"title\": \"$TITLE\", \"body\": \"$BODY\"}")
+
+                  echo "Response: $response"
+              fi
+          done
+      
+      - name: Check Quality Gate
+        run: |
+          STATUS=$(curl -s -u ${{ secrets.SONAR_TOKEN }} \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ secrets.SONAR_PROJECT_KEY }}" \
+            | jq -r '.projectStatus.status')
+          if [ "$STATUS" != "OK" ]; then
+            echo "::error ::Quality gate failed: $STATUS"
+            exit 1
+          fi
+  
+  zap_scan:
+    runs-on: ubuntu-latest
+    name: DAST Webapp scan
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: main
+
+    - name: Run Juice Shop image
+      run: | 
+        docker pull bkimminich/juice-shop
+        docker run -p 3000:3000 --detach bkimminich/juice-shop
+
+    - name: ZAP SCAN
+      uses: zaproxy/action-full-scan@v0.12.0
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        docker_name: 'ghcr.io/zaproxy/zaproxy:stable'
+        target: 'http://localhost:3000'
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a'
+
+    - name: Generate ZAP Report
+      run: |
+        # Generate the ZAP report in JSON format using quickout
+        docker run --rm -v ${{ github.workspace }}:/zap/wrk/:rw ghcr.io/zaproxy/zaproxy:stable zap.sh -cmd -quickurl http://localhost:3000 -quickout /zap/wrk/zap_report.json
+
+    - name: Create GitHub Issues for Findings
+      run: |
+        # Parse the ZAP report and create issues
+        findings=$(jq -c '.site[].alerts[]' zap_report.json)
+
+        if [ -z "$findings" ]; then
+            echo "No findings to process."
+            exit 0
+        fi
+  
+        echo "$findings" | while read -r finding; do
+          TITLE=$(echo "$finding" | jq -r '.alert')
+          DESCRIPTION=$(echo "$finding" | jq -r '.description')
+          SEVERITY=$(echo "$finding" | jq -r '.severity')
+
+          echo "Title: $TITLE"
+          echo "Description: $DESCRIPTION"
+          echo "Severity: $SEVERITY"
+
+          # Create a new GitHub issue for each finding
+          response=$(curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/issues \
+            -d "{\"title\": \"$TITLE\", \"body\": \"Severity: $SEVERITY\n\n$DESCRIPTION\"}")
+
+          echo "Created issue: $response"
+        done
