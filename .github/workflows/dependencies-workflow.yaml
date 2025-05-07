@@ -10,5 +10,5 @@ jobs:
     uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/sbom.yaml@main
     permissions: # Required if the admin repo is private
       contents: read
-      workflows: read
+      id-token: write
       
