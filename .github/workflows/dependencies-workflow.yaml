@@ -11,4 +11,3 @@ jobs:
     permissions: # Required if the admin repo is private
       contents: read
       id-token: write
-      
