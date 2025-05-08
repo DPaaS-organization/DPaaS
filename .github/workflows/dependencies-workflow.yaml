@@ -7,7 +7,7 @@ on:
 
 jobs:
   call-software-dependency-workflow:
-    uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/sbom.yaml@main
+    uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/dependency-workflow.yaml@main
     permissions: # Required if the admin repo is private
       contents: read
       id-token: write
