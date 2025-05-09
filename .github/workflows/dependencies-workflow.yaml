@@ -11,5 +11,5 @@ jobs:
     permissions:
       contents: read
     with:
-      DEPENDENCY_TRACK_API_KEY: ${{ secret.DEPENDENCY_TRACK_API_KEY }}
-      ADMIN_ACCESS_TOKEN: ${{ secret.ADMIN_ACCESS_TOKEN }}
+      DEPENDENCY_TRACK_API_KEY: ${{ secrets.DEPENDENCY_TRACK_API_KEY }}
+      ADMIN_ACCESS_TOKEN: ${{ secrets.ADMIN_ACCESS_TOKEN }}
