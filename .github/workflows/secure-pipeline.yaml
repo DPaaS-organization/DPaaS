@@ -7,18 +7,7 @@ on:
   pull_request:
     branches:
       - main
-  workflow_call:
-    secrets:
-      DTRACK_API_KEY: 
-        required: true
-      ADMIN_ACCESS_TOKEN:
-        required: true
-      SONAR_TOKEN:
-        required: true
-      SONAR_PROJECT_KEY:  
-        required: true
-      WORKING_REPOSITORY:
-        required: true
+
 jobs:
   secure-build:
     uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/secure-build.yaml@main
