@@ -16,3 +16,4 @@ jobs:
       ADMIN_ACCESS_TOKEN: ${{ secrets.ADMIN_ACCESS_TOKEN }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+      DTRACK_PROJECT_KEY: ${{ secrets.DTRACK_PROJECT_KEY }}
