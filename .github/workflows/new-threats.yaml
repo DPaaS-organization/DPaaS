@@ -17,29 +17,9 @@ on:
         default: 'null'
 
 jobs:
-  download-sbom:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download SBOM Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: sbom  # This matches the name used during upload
-
-      - name: Install jq
-        run: sudo apt-get install jq
-
-      - name: Check for Specific Package Version
-        run: |
-          PACKAGE_NAME=${{ github.event.inputs.vulnerablePackage }} 
-          PACKAGE_VERSION=${{ github.event.inputs.packageVersions }} 
-
-          if jq -e ".components[] | select(.name == \"$PACKAGE_NAME\" and .version == \"$PACKAGE_VERSION\")" sbom.json > /dev/null; then
-            echo "Package $PACKAGE_NAME version $PACKAGE_VERSION is present in the SBOM."
-          else
-            echo "Package $PACKAGE_NAME version $PACKAGE_VERSION is NOT present in the SBOM."
-            exit 1
-          fi
+  new-threats:
+    uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/new-threats.yaml@main
+    with:
+      cveNumber: ${{ inputs.cveNumber }}
+      vulnerablePackage: ${{ inputs.vulnerablePackage }}
+      packageVersions: ${{ inputs.packageVersions }}
