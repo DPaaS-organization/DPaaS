@@ -22,7 +22,7 @@ jobs:
     uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/secure-deployment.yaml@main
     needs: secure-build
     with:
-      dockerImageName: "JuiceShop"
+      dockerImageName: "juiceshop"
     secrets:
       PRODUCTION_HOST_URL: ${{ secrets.PRODUCTION_HOST_URL }}
       DB_USER: ${{ secrets.DB_USER }}
