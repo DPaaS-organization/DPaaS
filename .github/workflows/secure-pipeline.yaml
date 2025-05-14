@@ -17,6 +17,9 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
       DTRACK_PROJECT_KEY: ${{ secrets.DTRACK_PROJECT_KEY }}
+  secure-deployment:
+    uses: DPaaS-organization/DPaaS-Admin-Repo/.github/workflows/secure-deployment.yaml@main
+    secrets:
       PRODUCTION_HOST_URL: ${{ secrets.PRODUCTION_HOST_URL }}
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
