@@ -25,3 +25,4 @@ jobs:
       packageVersions: ${{ inputs.packageVersions }}
     secrets:
       DTRACK_PROJECT_KEY: ${{ secrets.DTRACK_PROJECT_KEY }}
+      DTRACK_API_KEY: ${{ secrets.DTRACK_API_KEY }}
