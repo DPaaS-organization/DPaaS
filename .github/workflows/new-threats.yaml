@@ -23,4 +23,5 @@ jobs:
       cveNumber: ${{ inputs.cveNumber }}
       vulnerablePackage: ${{ inputs.vulnerablePackage }}
       packageVersions: ${{ inputs.packageVersions }}
-
+    secrets:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
